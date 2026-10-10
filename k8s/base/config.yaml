@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: document-mgmt-config
+  namespace: document-mgmt
+data:
+  POSTGRES_DB: documents
+  POSTGRES_USER: docuser
+  MAX_UPLOAD_MB: "20"

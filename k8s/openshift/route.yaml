@@ -1,0 +1,7 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata: {name: document-mgmt, namespace: document-mgmt}
+spec:
+  to: {kind: Service, name: frontend}
+  port: {targetPort: 80}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}

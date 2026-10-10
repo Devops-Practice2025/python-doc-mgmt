@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: postgres-data, namespace: document-mgmt}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 5Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: upload-data, namespace: document-mgmt}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 5Gi}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: postgres, namespace: document-mgmt}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: postgres}}
+  template:
+    metadata: {labels: {app: postgres}}
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:17-alpine
+        envFrom: [{configMapRef: {name: document-mgmt-config}}, {secretRef: {name: document-mgmt-secret}}]
+        ports: [{containerPort: 5432}]
+        readinessProbe: {exec: {command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']}, initialDelaySeconds: 5, periodSeconds: 5}
+        volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: postgres-data}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: postgres, namespace: document-mgmt}
+spec: {selector: {app: postgres}, ports: [{port: 5432, targetPort: 5432}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: backend, namespace: document-mgmt}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: backend}}
+  template:
+    metadata: {labels: {app: backend}}
+    spec:
+      containers:
+      - name: backend
+        image: document-mgmt-backend:latest
+        env:
+        - {name: UPLOAD_DIR, value: /app/uploads}
+        - {name: MAX_UPLOAD_MB, valueFrom: {configMapKeyRef: {name: document-mgmt-config, key: MAX_UPLOAD_MB}}}
+        - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: document-mgmt-secret, key: POSTGRES_PASSWORD}}}
+        - {name: DATABASE_URL, value: postgresql+psycopg://docuser:$(POSTGRES_PASSWORD)@postgres:5432/documents}
+        ports: [{containerPort: 8000}]
+        readinessProbe: {httpGet: {path: /healthz, port: 8000}, initialDelaySeconds: 5, periodSeconds: 10}
+        livenessProbe: {httpGet: {path: /healthz, port: 8000}, initialDelaySeconds: 15, periodSeconds: 20}
+        resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+        volumeMounts: [{name: uploads, mountPath: /app/uploads}]
+      volumes: [{name: uploads, persistentVolumeClaim: {claimName: upload-data}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: backend, namespace: document-mgmt}
+spec: {selector: {app: backend}, ports: [{port: 8000, targetPort: 8000}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: frontend, namespace: document-mgmt}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: frontend}}
+  template:
+    metadata: {labels: {app: frontend}}
+    spec:
+      containers:
+      - name: frontend
+        image: document-mgmt-frontend:latest
+        env:
+        - {name: BACKEND_URL, value: http://backend:8000}
+        - {name: SECRET_KEY, valueFrom: {secretKeyRef: {name: document-mgmt-secret, key: SECRET_KEY}}}
+        - {name: MAX_UPLOAD_MB, valueFrom: {configMapKeyRef: {name: document-mgmt-config, key: MAX_UPLOAD_MB}}}
+        ports: [{containerPort: 5000}]
+        readinessProbe: {httpGet: {path: /healthz, port: 5000}, initialDelaySeconds: 5, periodSeconds: 10}
+        resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: frontend, namespace: document-mgmt}
+spec: {selector: {app: frontend}, ports: [{port: 80, targetPort: 5000}], type: LoadBalancer}
