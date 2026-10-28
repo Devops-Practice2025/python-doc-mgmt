@@ -1,11 +1,13 @@
 # docker installation steps:
+```bash
 sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
 sudo dnf install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo usermod -aG docker $USER
 newgrp docker
+```
 
 # set env variable to random values and save to .env
-
+```bash
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
 SECRET_KEY=$(openssl rand -hex 32)
 
@@ -15,6 +17,7 @@ SECRET_KEY=${SECRET_KEY}
 EOF
 chmod 600 .env
 ls -la .env
+```
 
 # Corrected Document Management Lab
 
