@@ -1,0 +1,13 @@
+
+# Google Cloud credentials
+gha-creds-*.json
+github-actions-key.json
+gcp-key.json
+*service-account*.json
+
+# Terraform runtime files
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfplan
+terraform/terraform.tfvars
