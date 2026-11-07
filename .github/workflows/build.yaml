@@ -119,6 +119,7 @@ jobs:
         shell: bash
         run: |
           BACKEND_URL="${{ steps.deploy-backend.outputs.url }}"
+          BACKEND_URL="${BACKEND_URL%/}"
 
           echo "Backend URL: ${BACKEND_URL}"
 
@@ -145,6 +146,14 @@ jobs:
           echo "Backend health check failed"
           cat /tmp/backend-response.txt || true
           exit 1
+      - name: Normalize backend URL
+        id: backend-url
+        shell: bash
+        run: |
+          BACKEND_URL="${{ steps.deploy-backend.outputs.url }}"
+          BACKEND_URL="${BACKEND_URL%/}"
+
+          echo "url=${BACKEND_URL}" >> "${GITHUB_OUTPUT}"
 
       - name: Deploy frontend to Cloud Run
         id: deploy-frontend
@@ -154,7 +163,7 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ steps.images.outputs.frontend }}:${{ steps.images.outputs.version }}
           env_vars: |-
-            BACKEND_URL=${{ steps.deploy-backend.outputs.url }}
+            BACKEND_URL=${{ steps.backend-url.outputs.url }}
           flags: >-
             --project=${{ env.PROJECT_ID }}
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
@@ -169,6 +178,7 @@ jobs:
         shell: bash
         run: |
           FRONTEND_URL="${{ steps.deploy-frontend.outputs.url }}"
+          FRONTEND_URL="${FRONTEND_URL%/}"
 
           echo "Frontend URL: ${FRONTEND_URL}"
 
