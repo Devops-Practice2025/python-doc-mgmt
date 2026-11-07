@@ -7,7 +7,7 @@ resource "google_artifact_registry_repository_iam_member" "github_writer" {
 }
 resource "google_project_iam_member" "cloud_run_runtime" {
   project = var.project_id
-  role    = "roles/run.invoker"
+  role    = "roles/run.admin"
     member  = "serviceAccount:${google_service_account.github_actions.email}"
 }
 
