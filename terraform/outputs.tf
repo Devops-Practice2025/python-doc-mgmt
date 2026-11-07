@@ -21,3 +21,8 @@ output "artifact_registry_path" {
 output "github_service_account_email" {
   value = google_service_account.github_actions.email
 }
+
+output "cloud_run_runtime_service_account" {
+  description = "Runtime service account used by Cloud Run"
+  value       = google_service_account.cloud_run_runtime.email
+}
