@@ -1,0 +1,95 @@
+name: Build and Push Images to Artifact Registry
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+
+jobs:
+  build-and-push:
+    name: Build and push frontend and backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          create_credentials_file: true
+
+      - name: Install Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Verify Google Cloud authentication
+        run: |
+          gcloud auth list
+          gcloud config set project "${PROJECT_ID}"
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker \
+            "${REGION}-docker.pkg.dev" \
+            --quiet
+
+      - name: Generate image names
+        id: images
+        shell: bash
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          BACKEND_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/backend"
+          FRONTEND_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/frontend"
+
+          echo "version=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "backend=${BACKEND_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "frontend=${FRONTEND_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Build backend image
+        run: |
+          docker build \
+            --file Dockerfile.backend \
+            --tag "${{ steps.images.outputs.backend }}:${{ steps.images.outputs.version }}" \
+            --tag "${{ steps.images.outputs.backend }}:latest" \
+            .
+
+      - name: Push backend image
+        run: |
+          docker push \
+            "${{ steps.images.outputs.backend }}:${{ steps.images.outputs.version }}"
+
+          docker push \
+            "${{ steps.images.outputs.backend }}:latest"
+
+      - name: Build frontend image
+        run: |
+          docker build \
+            --file Dockerfile.frontend \
+            --tag "${{ steps.images.outputs.frontend }}:${{ steps.images.outputs.version }}" \
+            --tag "${{ steps.images.outputs.frontend }}:latest" \
+            .
+
+      - name: Push frontend image
+        run: |
+          docker push \
+            "${{ steps.images.outputs.frontend }}:${{ steps.images.outputs.version }}"
+
+          docker push \
+            "${{ steps.images.outputs.frontend }}:latest"
+
+      - name: Show published images
+        run: |
+          echo "Backend image:"
+          echo "${{ steps.images.outputs.backend }}:${{ steps.images.outputs.version }}"
+
+          echo "Frontend image:"
+          echo "${{ steps.images.outputs.frontend }}:${{ steps.images.outputs.version }}"
