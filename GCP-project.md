@@ -7,7 +7,17 @@ gcloud config get-value compute/region
 ```
 **Env variable set**
 ```bash
-export PROJECT_ID=$( gcloud projects list | awk 'NR>2{print $1}')
+export PROJECT_ID="$(
+  gcloud projects list \
+    --filter='lifecycleState=ACTIVE' \
+    --format='value(projectId)' |
+  head -1
+)"
+cat > terraform.tfvars <<EOF
+project_id          = "${PROJECT_ID}"
+region              = "${REGION}"
+artifact_repository = "python-doc-mgmt"
+EOF
 export REGION="europe-west1"
 export REPOSITORY="python-doc-mgmt"
 export BACKEND_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/backend:v1"
@@ -18,6 +28,18 @@ gcloud projects describe "$PROJECT_ID"
 gcloud config set project "$PROJECT_ID"
 gcloud config set run/region "$REGION"
 gcloud config list
+gcloud auth application-default revoke --quiet || true
+
+export GITHUB_SA="$(
+  terraform output -raw github_service_account_email
+)"
+export RUNTIME_SA="$(
+  terraform output -raw cloud_run_runtime_service_account
+)"
+
+umask 077
+ gcloud iam service-accounts keys create   /tmp/github-actions-key.json   --iam-account="$GITHUB_SA"   --project="$PROJECT_ID"
+cat /tmp/github-actions-key.json 
 ```
 **enable api**
 ```bash

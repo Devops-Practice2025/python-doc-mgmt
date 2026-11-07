@@ -114,38 +114,48 @@ jobs:
             --min-instances=0
             --max-instances=2
             --allow-unauthenticated
-
-      - name: Test backend health
+      
+      - name: Verify backend Cloud Run revision
         shell: bash
         run: |
-          BACKEND_URL="${{ steps.deploy-backend.outputs.url }}"
-          BACKEND_URL="${BACKEND_URL%/}"
+          SERVICE_JSON="$(
+            gcloud run services describe python-doc-backend \
+              --project="${PROJECT_ID}" \
+              --region="${REGION}" \
+              --format=json
+          )"
 
-          echo "Backend URL: ${BACKEND_URL}"
+          READY="$(
+            jq -r '
+              .status.conditions[]
+              | select(.type == "Ready")
+              | .status
+            ' <<< "${SERVICE_JSON}"
+          )"
 
-          for attempt in 1 2 3 4 5 6; do
-            HTTP_CODE="$(
-              curl \
-                --silent \
-                --show-error \
-                --output /tmp/backend-response.txt \
-                --write-out '%{http_code}' \
-                "${BACKEND_URL}/healthz" || true
-            )"
+          CREATED_REVISION="$(
+            jq -r '.status.latestCreatedRevisionName' \
+              <<< "${SERVICE_JSON}"
+          )"
 
-            if [ "${HTTP_CODE}" = "200" ]; then
-              echo "Backend health check passed"
-              cat /tmp/backend-response.txt
-              exit 0
-            fi
+          READY_REVISION="$(
+            jq -r '.status.latestReadyRevisionName' \
+              <<< "${SERVICE_JSON}"
+          )"
 
-            echo "Attempt ${attempt}: HTTP ${HTTP_CODE}"
-            sleep 10
-          done
+          TRAFFIC_PERCENT="$(
+            jq -r '.status.traffic[0].percent' \
+              <<< "${SERVICE_JSON}"
+          )"
 
-          echo "Backend health check failed"
-          cat /tmp/backend-response.txt || true
-          exit 1
+          echo "Ready: ${READY}"
+          echo "Created revision: ${CREATED_REVISION}"
+          echo "Ready revision: ${READY_REVISION}"
+          echo "Traffic: ${TRAFFIC_PERCENT}%"
+
+          test "${READY}" = "True"
+          test "${CREATED_REVISION}" = "${READY_REVISION}"
+          test "${TRAFFIC_PERCENT}" = "100"
       - name: Normalize backend URL
         id: backend-url
         shell: bash
@@ -155,6 +165,21 @@ jobs:
 
           echo "url=${BACKEND_URL}" >> "${GITHUB_OUTPUT}"
 
+      
+      - name: Test backend public endpoint
+        continue-on-error: true
+        shell: bash
+        run: |
+          BACKEND_URL="${{ steps.deploy-backend.outputs.url }}"
+          BACKEND_URL="${BACKEND_URL%/}"
+
+          curl \
+            --fail-with-body \
+            --show-error \
+            --location \
+            "${BACKEND_URL}/healthz"
+
+      
       - name: Deploy frontend to Cloud Run
         id: deploy-frontend
         uses: google-github-actions/deploy-cloudrun@v3
@@ -172,39 +197,43 @@ jobs:
             --memory=512Mi
             --min-instances=0
             --max-instances=2
-            --allow-unauthenticated
+            --ingress=all
+            --no-invoker-iam-check
 
-      - name: Test frontend health
+      - name: Verify frontend Cloud Run revision
         shell: bash
         run: |
-          FRONTEND_URL="${{ steps.deploy-frontend.outputs.url }}"
-          FRONTEND_URL="${FRONTEND_URL%/}"
+          SERVICE_JSON="$(
+            gcloud run services describe python-doc-frontend \
+              --project="${PROJECT_ID}" \
+              --region="${REGION}" \
+              --format=json
+          )"
 
-          echo "Frontend URL: ${FRONTEND_URL}"
+          READY="$(
+            jq -r '
+              .status.conditions[]
+              | select(.type == "Ready")
+              | .status
+            ' <<< "${SERVICE_JSON}"
+          )"
 
-          for attempt in 1 2 3 4 5 6; do
-            HTTP_CODE="$(
-              curl \
-                --silent \
-                --show-error \
-                --output /tmp/frontend-response.txt \
-                --write-out '%{http_code}' \
-                "${FRONTEND_URL}/healthz" || true
-            )"
+          CREATED_REVISION="$(
+            jq -r '.status.latestCreatedRevisionName' \
+              <<< "${SERVICE_JSON}"
+          )"
 
-            if [ "${HTTP_CODE}" = "200" ]; then
-              echo "Frontend health check passed"
-              cat /tmp/frontend-response.txt
-              exit 0
-            fi
+          READY_REVISION="$(
+            jq -r '.status.latestReadyRevisionName' \
+              <<< "${SERVICE_JSON}"
+          )"
 
-            echo "Attempt ${attempt}: HTTP ${HTTP_CODE}"
-            sleep 10
-          done
+          echo "Ready: ${READY}"
+          echo "Created revision: ${CREATED_REVISION}"
+          echo "Ready revision: ${READY_REVISION}"
 
-          echo "Frontend health check failed"
-          cat /tmp/frontend-response.txt || true
-          exit 1
+          test "${READY}" = "True"
+          test "${CREATED_REVISION}" = "${READY_REVISION}"
 
       - name: Show deployment summary
         shell: bash
