@@ -11,6 +11,7 @@ env:
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   REGION: ${{ vars.GCP_REGION }}
   REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+  RUNTIME_SERVICE_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
 
 jobs:
   build-and-push:
@@ -93,3 +94,129 @@ jobs:
 
           echo "Frontend image:"
           echo "${{ steps.images.outputs.frontend }}:${{ steps.images.outputs.version }}"
+  
+      - name: Deploy backend to Cloud Run
+        id: deploy-backend
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: python-doc-backend
+          region: ${{ env.REGION }}
+          image: ${{ steps.images.outputs.backend }}:${{ steps.images.outputs.version }}
+          env_vars: |-
+            DATABASE_URL=sqlite:////tmp/documents.db
+            UPLOAD_DIR=/tmp/uploads
+          flags: >-
+            --project=${{ env.PROJECT_ID }}
+            --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
+            --port=8000
+            --cpu=1
+            --memory=512Mi
+            --min-instances=0
+            --max-instances=2
+            --allow-unauthenticated
+
+      - name: Test backend health
+        shell: bash
+        run: |
+          BACKEND_URL="${{ steps.deploy-backend.outputs.url }}"
+
+          echo "Backend URL: ${BACKEND_URL}"
+
+          for attempt in 1 2 3 4 5 6; do
+            HTTP_CODE="$(
+              curl \
+                --silent \
+                --show-error \
+                --output /tmp/backend-response.txt \
+                --write-out '%{http_code}' \
+                "${BACKEND_URL}/healthz" || true
+            )"
+
+            if [ "${HTTP_CODE}" = "200" ]; then
+              echo "Backend health check passed"
+              cat /tmp/backend-response.txt
+              exit 0
+            fi
+
+            echo "Attempt ${attempt}: HTTP ${HTTP_CODE}"
+            sleep 10
+          done
+
+          echo "Backend health check failed"
+          cat /tmp/backend-response.txt || true
+          exit 1
+
+      - name: Deploy frontend to Cloud Run
+        id: deploy-frontend
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: python-doc-frontend
+          region: ${{ env.REGION }}
+          image: ${{ steps.images.outputs.frontend }}:${{ steps.images.outputs.version }}
+          env_vars: |-
+            BACKEND_URL=${{ steps.deploy-backend.outputs.url }}
+          flags: >-
+            --project=${{ env.PROJECT_ID }}
+            --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
+            --port=5000
+            --cpu=1
+            --memory=512Mi
+            --min-instances=0
+            --max-instances=2
+            --allow-unauthenticated
+
+      - name: Test frontend health
+        shell: bash
+        run: |
+          FRONTEND_URL="${{ steps.deploy-frontend.outputs.url }}"
+
+          echo "Frontend URL: ${FRONTEND_URL}"
+
+          for attempt in 1 2 3 4 5 6; do
+            HTTP_CODE="$(
+              curl \
+                --silent \
+                --show-error \
+                --output /tmp/frontend-response.txt \
+                --write-out '%{http_code}' \
+                "${FRONTEND_URL}/healthz" || true
+            )"
+
+            if [ "${HTTP_CODE}" = "200" ]; then
+              echo "Frontend health check passed"
+              cat /tmp/frontend-response.txt
+              exit 0
+            fi
+
+            echo "Attempt ${attempt}: HTTP ${HTTP_CODE}"
+            sleep 10
+          done
+
+          echo "Frontend health check failed"
+          cat /tmp/frontend-response.txt || true
+          exit 1
+
+      - name: Show deployment summary
+        shell: bash
+        run: |
+          echo "Backend image:"
+          echo "${{ steps.images.outputs.backend }}:${{ steps.images.outputs.version }}"
+
+          echo "Frontend image:"
+          echo "${{ steps.images.outputs.frontend }}:${{ steps.images.outputs.version }}"
+
+          echo "Backend URL:"
+          echo "${{ steps.deploy-backend.outputs.url }}"
+
+          echo "Frontend URL:"
+          echo "${{ steps.deploy-frontend.outputs.url }}"
+
+          {
+            echo "## Python Document Management deployment"
+            echo ""
+            echo "| Component | Value |"
+            echo "|---|---|"
+            echo "| Version | \`${{ steps.images.outputs.version }}\` |"
+            echo "| Backend | ${{ steps.deploy-backend.outputs.url }} |"
+            echo "| Frontend | ${{ steps.deploy-frontend.outputs.url }} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
